@@ -5,7 +5,7 @@ import { deflateRawSync, crc32 } from 'node:zlib';
 import { join } from 'node:path';
 
 // Only files the built extension actually uses (skips leftovers in dist/).
-const KEEP = /^(manifest\.json|content\.(js|css)|viewer\.(html|js|css)|options\.(html|js|css)|background\.js|decoder-(host\.(html|js)|worker\.js)|libheif\.wasm|THIRD_PARTY_NOTICES\.txt|LICENSE|icons\/icon-\d+\.png)$/;
+const KEEP = /^(manifest\.json|content\.(js|css)|viewer\.(html|js|css)|options\.(html|js|css)|background\.js|decoder-(host\.(html|js)|worker\.js)|libheif\.wasm|THIRD_PARTY_NOTICES\.txt|LICENSE\.txt|icons\/icon-\d+\.png)$/;
 
 async function walk(dir, base = '') {
   const out = [];

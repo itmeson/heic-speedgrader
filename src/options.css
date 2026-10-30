@@ -21,3 +21,4 @@ button.link { background:none; border:none; color:var(--err); padding:0 4px; }
 ul#list { padding-left: 18px; margin: 0; }
 .empty, .hint { color: var(--muted); }
 a { color: var(--accent); }
+ul.links { padding-left: 18px; margin: 0 0 8px; }

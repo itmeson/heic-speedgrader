@@ -9,15 +9,17 @@ await mkdir('dist', { recursive: true });
 const copy = async (from, to) => writeFile(to, await readFile(from));
 await mkdir('dist/icons', { recursive: true });
 for (const f of ['manifest.json', 'viewer.html', 'viewer.css', 'content.css', 'content.js', 'decoder-host.html',
-  'options.html', 'options.css', 'options.js', '../LICENSE',
+  'options.html', 'options.css', 'options.js',
   'icons/icon-16.png', 'icons/icon-32.png', 'icons/icon-48.png', 'icons/icon-128.png']) {
-  await copy(`src/${f}`, `dist/${f.replace('../', '')}`);
+  await copy(`src/${f}`, `dist/${f}`);
 }
+await copy('LICENSE', 'dist/LICENSE.txt');
 await copy('node_modules/libheif-js/libheif-wasm/libheif.wasm', 'dist/libheif.wasm');
+// Decoder inventory + source/replacement notes, then the LGPL text shipped with libheif-js.
 await writeFile('dist/THIRD_PARTY_NOTICES.txt',
-  'This extension includes libheif (https://github.com/strukturag/libheif) and libde265,\n' +
-  'compiled to WebAssembly by libheif-js (https://github.com/catdad-experiments/libheif-js).\n' +
-  'They are licensed under the GNU Lesser General Public License v3; full text below.\n\n' +
+  await readFile('licenses/DECODER.md', 'utf8') +
+  '\n\n----------------------------------------------------------------------\n' +
+  'License text for libheif-js, libheif and libde265 (GNU LGPL v3, which incorporates the GNU GPL v3):\n\n' +
   await readFile('node_modules/libheif-js/libheif-wasm/LICENSE', 'utf8'));
 
 const common = {

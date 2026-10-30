@@ -97,4 +97,6 @@ $('add-form').addEventListener('submit', (e) => {
   });
 });
 
+$('version').textContent = chrome.runtime.getManifest().version;
+
 render().catch((e) => say(`Couldn't read settings: ${e.message}`, 'error'));

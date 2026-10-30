@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "HEIC Viewer for Canvas SpeedGrader",
   "short_name": "HEIC Viewer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "See iPhone HEIC photo submissions inside Canvas SpeedGrader. Decoded on your computer; nothing is uploaded or collected.",
   "minimum_chrome_version": "120",
   "icons": {
@@ -40,7 +40,7 @@
         "content.css"
       ],
       "run_at": "document_idle",
-      "all_frames": true
+      "all_frames": false
     }
   ],
   "host_permissions": [
@@ -64,6 +64,6 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; default-src 'self'; connect-src 'self' https:; img-src 'self' blob: data:; style-src 'self'; frame-ancestors https:"
   }
 }

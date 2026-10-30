@@ -9,9 +9,9 @@ await mkdir('dist', { recursive: true });
 const copy = async (from, to) => writeFile(to, await readFile(from));
 await mkdir('dist/icons', { recursive: true });
 for (const f of ['manifest.json', 'viewer.html', 'viewer.css', 'content.css', 'content.js', 'decoder-host.html',
-  'background.js', 'options.html', 'options.css', 'options.js',
+  'options.html', 'options.css', 'options.js', '../LICENSE',
   'icons/icon-16.png', 'icons/icon-32.png', 'icons/icon-48.png', 'icons/icon-128.png']) {
-  await copy(`src/${f}`, `dist/${f}`);
+  await copy(`src/${f}`, `dist/${f.replace('../', '')}`);
 }
 await copy('node_modules/libheif-js/libheif-wasm/libheif.wasm', 'dist/libheif.wasm');
 await writeFile('dist/THIRD_PARTY_NOTICES.txt',
@@ -32,6 +32,7 @@ const builds = [
   { ...common, entryPoints: ['src/viewer.js'], format: 'esm', outfile: 'dist/viewer.js' },
   { ...common, entryPoints: ['src/decoder-host.js'], format: 'esm', outfile: 'dist/decoder-host.js' },
   { ...common, entryPoints: ['src/decoder-worker.js'], format: 'iife', outfile: 'dist/decoder-worker.js' },
+  { ...common, entryPoints: ['src/background.js'], format: 'iife', outfile: 'dist/background.js' },
 ];
 
 for (const b of builds) {

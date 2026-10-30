@@ -1,10 +1,14 @@
-// HEIC Viewer — viewer page (runs as an extension page, embedded in SpeedGrader).
-// Fetches the submission file directly from Canvas using the teacher's own
-// session, decodes it locally with libheif (WebAssembly), and draws it.
-// No data leaves the browser and nothing is stored.
+// HEIC Viewer — viewer page (an extension page embedded in Canvas).
+//
+// Learns which file to show by redeeming a one-time ticket with the
+// background script (never from its own URL), downloads it with the
+// teacher's Canvas login, decodes it on this computer with libheif
+// (WebAssembly) and draws it. Nothing is stored or sent elsewhere.
 
 import { isHeicHevc, parseHeif, thumbnailJob, gridPlan, describe, primarySize } from './heif.js';
 import { LocalPool, RemotePool } from './decoder-pool.js';
+import { isAllowedFinalUrl } from './url-policy.js';
+import { LimitError, MAX_FILE_BYTES, MAX_PIXELS, MAX_TILES } from './limits.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -73,24 +77,77 @@ function zoomBy(factor) {
 
 const log = (...a) => console.info('[HEIC Viewer]', ...a);
 const nextPaint = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+const mp = (w, h) => `${Math.round((w * h) / 1e6)} megapixels`;
 
-// The decoder: normally a warm worker pool in the long-lived decoder-host
-// frame (the content script hands us a port to it); if that doesn't arrive,
-// e.g. when this page is opened on its own, start a local pool instead.
-const hasSrc = new URLSearchParams(location.hash.slice(1)).has('src');
-const poolPromise = new Promise((resolve) => {
-  const fallback = setTimeout(() => {
+// ---------------------------------------------------------------------------
+// Decoder connection. Normally a warm worker pool in the long-lived
+// decoder-host frame on the same page. We find it by pinging sibling frames
+// with targetOrigin = our own extension origin, and accept only replies from
+// that origin (web pages can't send messages that claim it). Otherwise we
+// start our own pool.
+// ---------------------------------------------------------------------------
+function connectToHost(timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    if (window.parent === window) { resolve(null); return; }
+    const nonce = crypto.randomUUID();
+    const onMsg = (e) => {
+      if (e.origin !== location.origin || !e.source || e.data?.type !== 'heic-host-here' ||
+          e.data.nonce !== nonce) return;
+      cleanup();
+      const { port1, port2 } = new MessageChannel();
+      e.source.postMessage({ type: 'heic-connect', nonce }, location.origin, [port2]);
+      resolve(new RemotePool(port1));
+    };
+    const ping = () => {
+      const frames = window.parent.frames;
+      for (let i = 0; i < frames.length; i++) {
+        try { if (frames[i] !== window) frames[i].postMessage({ type: 'heic-host-ping', nonce }, location.origin); } catch { /* gone */ }
+      }
+    };
+    const iv = setInterval(ping, 250);
+    const to = setTimeout(() => { cleanup(); resolve(null); }, timeoutMs);
+    function cleanup() { clearInterval(iv); clearTimeout(to); window.removeEventListener('message', onMsg); }
+    window.addEventListener('message', onMsg);
+    ping();
+  });
+}
+
+let poolPromise = null;
+function getPool() {
+  poolPromise ??= connectToHost().then((remote) => {
+    if (remote) return remote;
     const p = new LocalPool();
     p.warm();
-    resolve(p);
-  }, hasSrc ? 1500 : 0);
-  window.addEventListener('message', (e) => {
-    if (e.data?.type !== 'heic-decoder-port' || !e.ports[0]) return;
-    clearTimeout(fallback);
-    resolve(new RemotePool(e.ports[0]));
+    return p;
   });
-});
-window.addEventListener('pagehide', () => poolPromise.then((p) => p.close?.()));
+  return poolPromise;
+}
+
+// ---------------------------------------------------------------------------
+// Display. Each call gets a generation number; anything that finishes for an
+// older generation is discarded, so a late tile or a slow earlier file can't
+// paint over the current image.
+// ---------------------------------------------------------------------------
+let displayGen = 0;
+let downloadCtrl = null;
+const stale = (gen) => gen !== displayGen;
+
+function resetView(name) {
+  natW = natH = 0;
+  rotation = 0;
+  fit = true;
+  scale = 1;
+  fileName = name || '';
+  cv.width = cv.height = 0;
+  wrap.hidden = true;
+  phase.hidden = true;
+  $('save').disabled = true;
+  zoomLabel.textContent = '';
+  $('name').textContent = fileName;
+  document.title = fileName ? `HEIC preview – ${fileName}` : 'HEIC preview';
+  cv.setAttribute('role', 'img');
+  cv.setAttribute('aria-label', fileName || 'Submitted image');
+}
 
 function showCanvas() {
   setStatus('');
@@ -106,35 +163,49 @@ function drawBitmap(bitmap, displayW, displayH) {
   natH = displayH;
 }
 
+function checkPixels(w, h) {
+  if (w * h > MAX_PIXELS) throw new LimitError(`image is too large to preview (${mp(w, h)})`);
+}
+
 async function display(blob, name) {
-  fileName = name || '';
-  $('name').textContent = fileName;
-  document.title = fileName ? `HEIC preview – ${fileName}` : 'HEIC preview';
-  cv.setAttribute('role', 'img');
-  cv.setAttribute('aria-label', fileName || 'Submitted image');
+  const gen = ++displayGen;
+  resetView(name);
   setStatus('Decoding image…');
+  if (blob.size > MAX_FILE_BYTES) throw new LimitError('file is too large to preview');
 
   const t0 = performance.now();
   const ms = () => Math.round(performance.now() - t0);
   const buf = await blob.arrayBuffer();
+  if (stale(gen)) return;
 
   if (!isHeicHevc(buf)) {
     log('not a HEIC file; using the browser\'s own decoder');
     const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+    if (stale(gen)) { bmp.close(); return; }
+    checkPixels(bmp.width, bmp.height);
     drawBitmap(bmp, bmp.width, bmp.height);
     bmp.close();
-    return finish(ms);
+    return finish();
   }
 
-  const pool = await poolPromise;
+  const pool = await getPool();
+  if (stale(gen)) return;
+  pool.cancelPending(); // anything still queued for an earlier image
+
   let m = null;
-  try { m = parseHeif(buf); } catch (e) { log('could not read file structure:', e.message); }
+  try { m = parseHeif(buf); } catch (e) { log(`file structure not readable (${e.message}); letting libheif try`); }
 
   // Plan the full decode: split a tiled image across the worker pool.
   let plan = null;
   if (m) {
     try { plan = gridPlan(m); } catch (e) { plan = { reason: e.message }; }
     if (plan.reason) { log(`decoding in one piece (${plan.reason})`); plan = null; }
+  }
+  if (plan) {
+    if (plan.tiles.length > MAX_TILES) throw new LimitError(`image has too many tiles (${plan.tiles.length})`);
+    checkPixels(plan.width, plan.height);
+  } else if (m && primarySize(m)) {
+    checkPixels(...primarySize(m));
   }
   const fullSize = plan ? [plan.width, plan.height] : (m && primarySize(m));
 
@@ -148,6 +219,7 @@ async function display(blob, name) {
     } else {
       try {
         preview = await pool.decode(job.heic.buffer);
+        if (stale(gen)) { preview.close(); return; }
         const k = fullSize
           ? Math.max(...fullSize) / Math.max(preview.width, preview.height)
           : 10; // unknown size: assume large so Fit fills the view
@@ -158,7 +230,10 @@ async function display(blob, name) {
         phase.hidden = false;
         layout(false);
         await nextPaint();
+        if (stale(gen)) { preview.close(); return; }
       } catch (e) {
+        if (e.message === 'cancelled' || stale(gen)) return;
+        if (e instanceof LimitError) throw e;
         log('preview decode failed:', e.message);
         preview = null;
       }
@@ -166,29 +241,35 @@ async function display(blob, name) {
   }
 
   // 2) Full resolution.
-  if (plan) {
-    try {
-      await decodeTiles(pool, plan, preview, ms);
-      preview?.close();
-      return finish(ms);
-    } catch (e) {
-      if (e.message === 'cancelled') return;
-      log(`tiled decode failed (${e.message}); decoding in one piece`);
+  try {
+    if (plan) {
+      try {
+        await decodeTiles(pool, plan, preview, gen, ms);
+        if (!stale(gen)) finish();
+        return;
+      } catch (e) {
+        if (stale(gen) || e.message === 'cancelled') return;
+        if (e instanceof LimitError) throw e; // over a limit: never retry the whole file
+        log(`tiled decode failed (${e.message}); decoding in one piece`);
+        pool.cancelPending();
+      }
     }
+    const bmp = await pool.decode(buf);
+    if (stale(gen)) { bmp.close(); return; }
+    log(`full ${bmp.width}×${bmp.height} shown after ${ms()} ms`);
+    const hadPreview = !wrap.hidden;
+    drawBitmap(bmp, bmp.width, bmp.height);
+    bmp.close();
+    showCanvas();
+    layout(hadPreview && !fit);
+    finish();
+  } finally {
+    preview?.close();
   }
-  const bmp = await pool.decode(buf);
-  log(`full ${bmp.width}×${bmp.height} shown after ${ms()} ms`);
-  const hadPreview = !wrap.hidden;
-  drawBitmap(bmp, bmp.width, bmp.height);
-  bmp.close();
-  preview?.close();
-  showCanvas();
-  layout(hadPreview && !fit);
-  finish(ms);
 }
 
 /** Decode all grid tiles in parallel, painting each one as it arrives. */
-async function decodeTiles(pool, plan, preview, ms) {
+async function decodeTiles(pool, plan, preview, gen, ms) {
   const { width, height, matrix, gridW, gridH, tiles } = plan;
   const hadPreview = !wrap.hidden;
   cv.width = width;
@@ -202,19 +283,26 @@ async function decodeTiles(pool, plan, preview, ms) {
   layout(hadPreview && !fit);
 
   let done = 0;
+  let abandoned = false;
   phase.hidden = false;
   phase.textContent = `Sharpening… 0/${tiles.length}`;
-  await Promise.all(tiles.map((t) => pool.decode(t.heic.buffer).then((bmp) => {
-    ctx.save();
-    ctx.setTransform(...matrix);
-    ctx.beginPath();
-    ctx.rect(0, 0, gridW, gridH); // edge tiles overhang the real image size
-    ctx.clip();
-    ctx.drawImage(bmp, t.x, t.y);
-    ctx.restore();
-    bmp.close();
-    phase.textContent = `Sharpening… ${++done}/${tiles.length}`;
-  })));
+  try {
+    await Promise.all(tiles.map((t) => pool.decode(t.heic.buffer).then((bmp) => {
+      if (abandoned || stale(gen)) { bmp.close(); return; }
+      ctx.save();
+      ctx.setTransform(...matrix);
+      ctx.beginPath();
+      ctx.rect(0, 0, gridW, gridH); // edge tiles overhang the real image size
+      ctx.clip();
+      ctx.drawImage(bmp, t.x, t.y);
+      ctx.restore();
+      bmp.close();
+      phase.textContent = `Sharpening… ${++done}/${tiles.length}`;
+    })));
+  } catch (e) {
+    abandoned = true; // late tiles must not paint over whatever comes next
+    throw e;
+  }
   log(`full ${width}×${height} shown after ${ms()} ms (${tiles.length} tiles, ${pool.size || 'several'} workers)`);
 }
 
@@ -226,38 +314,99 @@ function finish() {
   $('save').disabled = false;
 }
 
-async function loadFromUrl(src, name) {
+// ---------------------------------------------------------------------------
+// Download (with the teacher's Canvas login), bounded in size.
+// ---------------------------------------------------------------------------
+async function download(url, pageOrigin) {
   setStatus('Downloading from Canvas…');
+  downloadCtrl?.abort();
+  const ctrl = new AbortController();
+  downloadCtrl = ctrl;
   const t0 = performance.now();
-  const res = await fetch(src, { credentials: 'include' });
-  if (!res.ok) throw new Error(`Canvas returned ${res.status} ${res.statusText}`);
-  const type = res.headers.get('content-type') || '';
-  if (type.includes('text/html')) {
-    throw new Error('Canvas returned a web page instead of the file (are you still logged in?)');
+  let res;
+  try {
+    res = await fetch(url, { credentials: 'include', cache: 'no-store', signal: ctrl.signal });
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+    // Includes redirects to hosts the extension isn't allowed to read.
+    throw new Error('the file couldn\'t be downloaded from Canvas (network error or unexpected file server)');
   }
-  const blob = await res.blob();
-  console.info(`[HEIC Viewer] downloaded ${(blob.size / 1e6).toFixed(1)} MB in ${Math.round(performance.now() - t0)} ms`);
-  await display(blob, name);
+  // Canvas redirects downloads to its file servers; refuse anywhere else.
+  if (!isAllowedFinalUrl(res.url, pageOrigin)) {
+    ctrl.abort();
+    throw new Error('Canvas sent the file from an unexpected address, so it was not opened.');
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw new Error('Canvas didn\'t allow the download. Your login may have expired; reload the page.');
+  }
+  if (!res.ok) throw new Error(`Canvas returned ${res.status} ${res.statusText}`);
+  if ((res.headers.get('content-type') || '').includes('text/html')) {
+    throw new Error('Canvas returned a web page instead of the file. Your login may have expired; reload the page.');
+  }
+  const declared = Number(res.headers.get('content-length'));
+  if (declared > MAX_FILE_BYTES) { ctrl.abort(); throw new LimitError('file is too large to preview'); }
+  // Count bytes as they arrive (the declared length may be missing or wrong).
+  const reader = res.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_FILE_BYTES) { ctrl.abort(); throw new LimitError('file is too large to preview'); }
+    chunks.push(value);
+  }
+  log(`downloaded ${(total / 1e6).toFixed(1)} MB in ${Math.round(performance.now() - t0)} ms`);
+  return new Blob(chunks);
 }
 
-// --- controls --------------------------------------------------------------
+function explain(err) {
+  if (err instanceof LimitError) return `This file can't be previewed safely: ${err.message}. Download it instead.`;
+  return `Couldn't show this file: ${err.message}`;
+}
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
 $('fit').addEventListener('click', () => { fit = true; layout(false); });
 $('zoom-in').addEventListener('click', () => zoomBy(ZOOM_STEP));
 $('zoom-out').addEventListener('click', () => zoomBy(1 / ZOOM_STEP));
 $('rotate').addEventListener('click', () => { rotation = (rotation + 90) % 360; layout(); });
+
+/** The image as shown: full resolution, with the on-screen rotation applied. */
+function exportCanvas() {
+  if (!rotation) return cv;
+  const out = document.createElement('canvas');
+  const turned = rotation % 180 !== 0;
+  out.width = turned ? cv.height : cv.width;
+  out.height = turned ? cv.width : cv.height;
+  const ctx = out.getContext('2d');
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate((rotation * Math.PI) / 180);
+  ctx.drawImage(cv, -cv.width / 2, -cv.height / 2);
+  return out;
+}
+
 $('save').addEventListener('click', () => {
-  cv.toBlob((b) => {
-    if (!b) return;
+  const gen = displayGen;
+  const name = (fileName || 'image').replace(/\.(heic|heif)$/i, '') + '.jpg';
+  exportCanvas().toBlob((b) => {
+    if (gen !== displayGen) return;
+    if (!b) { setStatus('Saving failed: the image could not be converted to JPG.', true); return; }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(b);
-    a.download = (fileName || 'image').replace(/\.(heic|heif)$/i, '') + '.jpg';
+    a.download = name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
   }, 'image/jpeg', 0.92);
 });
+
 document.addEventListener('keydown', (e) => {
-  if (e.target instanceof HTMLInputElement) return;
-  if (e.key === 'r' || e.key === 'R') $('rotate').click();
+  if (e.target instanceof HTMLInputElement || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === 'Escape') {
+    // Ask the Canvas page (our content script) to close the pop-up viewer.
+    window.parent.postMessage({ type: 'heic-viewer-close' }, location.ancestorOrigins?.[0] || '*');
+  } else if (e.key === 'r' || e.key === 'R') $('rotate').click();
   else if (e.key === 'f' || e.key === 'F') $('fit').click();
   else if (e.key === '+' || e.key === '=') $('zoom-in').click();
   else if (e.key === '-') $('zoom-out').click();
@@ -270,22 +419,49 @@ stage.addEventListener('wheel', (e) => {
 }, { passive: false });
 new ResizeObserver(() => { if (fit) layout(false); }).observe(stage);
 
-// --- entry -----------------------------------------------------------------
-const params = new URLSearchParams(location.hash.slice(1));
-const src = params.get('src');
-const name = params.get('name') || '';
+window.addEventListener('pagehide', () => {
+  displayGen++;
+  downloadCtrl?.abort();
+  poolPromise?.then((p) => p.close());
+});
 
-if (src) {
-  loadFromUrl(src, name).catch((err) => {
-    console.error(err);
-    setStatus(`Couldn't show this file: ${err.message}`, true);
+// ---------------------------------------------------------------------------
+// Entry
+// ---------------------------------------------------------------------------
+const params = new URLSearchParams(location.hash.slice(1));
+history.replaceState(null, '', location.pathname); // tickets are single-use anyway
+
+async function openTicket(ticket) {
+  getPool(); // start connecting to the decoder while we download
+  const job = await chrome.runtime.sendMessage({ type: 'redeem-ticket', ticket });
+  if (!job || job.error) throw new Error(job?.error || 'no response from the extension');
+  resetView(job.name);
+  const blob = await download(job.url, job.pageOrigin);
+  await display(blob, job.name);
+}
+
+if (params.get('t')) {
+  openTicket(params.get('t')).catch((err) => {
+    if (err.name === 'AbortError') return;
+    console.warn('[HEIC Viewer]', err.message);
+    phase.hidden = true;
+    setStatus(explain(err), true);
   });
+} else if (params.get('error')) {
+  setStatus(`Couldn't open this file: ${params.get('error')}`, true);
+} else if (window.parent !== window) {
+  setStatus('Nothing to show.', true); // embedded without a ticket: do nothing
 } else {
-  // Standalone test mode: open viewer.html directly and pick a local file.
+  // Standalone test mode (opened from the Options page): pick a HEIC file from this computer.
   setStatus('');
   $('picker').hidden = false;
   $('file').addEventListener('change', (e) => {
     const f = e.target.files?.[0];
-    if (f) display(f, f.name).catch((err) => setStatus(`Decode failed: ${err.message}`, true));
+    if (f) {
+      display(f, f.name).catch((err) => {
+        phase.hidden = true;
+        setStatus(explain(err), true);
+      });
+    }
   });
 }

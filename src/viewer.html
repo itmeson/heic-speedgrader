@@ -7,23 +7,24 @@
   <link rel="stylesheet" href="viewer.css">
 </head>
 <body>
-  <div id="toolbar">
+  <div id="toolbar" role="toolbar" aria-label="Image controls">
     <span id="name"></span>
-    <span id="phase" hidden>Preview · loading full image…</span>
+    <span id="phase" role="status" hidden>Preview · loading full image…</span>
     <span class="spacer"></span>
     <span id="zoom-label" aria-live="polite"></span>
     <button type="button" id="fit" aria-pressed="true" title="Fit to window (F)">Fit</button>
-    <button type="button" id="zoom-out" title="Zoom out (−)">−</button>
-    <button type="button" id="zoom-in" title="Zoom in (+)">+</button>
-    <button type="button" id="rotate" title="Rotate 90° (R)">⟳</button>
+    <button type="button" id="zoom-out" title="Zoom out (−)" aria-label="Zoom out">−</button>
+    <button type="button" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>
+    <button type="button" id="rotate" title="Rotate 90° (R)" aria-label="Rotate 90 degrees">⟳</button>
     <button type="button" id="save" title="Save as JPEG" disabled>Save JPG</button>
   </div>
   <div id="stage">
-    <p id="status" role="status">Loading…</p>
+    <p id="status" role="status" aria-live="polite">Loading…</p>
     <div id="wrap" hidden><canvas id="cv"></canvas></div>
   </div>
   <div id="picker" hidden>
-    <p>No file was passed to the viewer. Choose a HEIC file to test decoding locally:</p>
+    <p>This page tests the HEIC decoder with a file from your computer. The file is decoded here and not uploaded anywhere.</p>
+    <label for="file">Choose a HEIC file:</label>
     <input type="file" id="file" accept=".heic,.heif,image/heic,image/heif">
   </div>
   <script type="module" src="viewer.js"></script>

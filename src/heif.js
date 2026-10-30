@@ -13,13 +13,33 @@
 const td = new TextDecoder('latin1');
 const TRANSFORMS = ['clap', 'irot', 'imir'];
 
+// Structural limits: far above what any camera writes, low enough that a
+// hostile file can't make the parser do unbounded work.
+const MAX_BOXES = 10_000;
+const MAX_ITEMS = 4_096;
+const MAX_REFS = 8_192;
+const MAX_PROPS = 4_096;
+const MAX_EXTENTS = 64;
+
+export class HeifFormatError extends Error {
+  constructor(message) { super(message); this.name = 'HeifFormatError'; }
+}
+const fail = (msg) => { throw new HeifFormatError(msg); };
+
 function* boxes(view, start, end) {
   let p = start;
+  let n = 0;
   while (p + 8 <= end) {
+    if (++n > MAX_BOXES) fail('too many boxes');
     let size = view.getUint32(p);
     const type = td.decode(new Uint8Array(view.buffer, view.byteOffset + p + 4, 4));
     let header = 8;
-    if (size === 1) { size = Number(view.getBigUint64(p + 8)); header = 16; }
+    if (size === 1) {
+      const big = view.getBigUint64(p + 8);
+      if (big > BigInt(Number.MAX_SAFE_INTEGER)) fail('box too large');
+      size = Number(big);
+      header = 16;
+    }
     else if (size === 0) size = end - p;
     if (size < header || p + size > end) return;
     yield { type, start: p, body: p + header, end: p + size };
@@ -32,7 +52,11 @@ function readN(view, p, n) {
   if (n === 1) return view.getUint8(p);
   if (n === 2) return view.getUint16(p);
   if (n === 4) return view.getUint32(p);
-  if (n === 8) return Number(view.getBigUint64(p));
+  if (n === 8) {
+    const big = view.getBigUint64(p);
+    if (big > BigInt(Number.MAX_SAFE_INTEGER)) fail('offset too large');
+    return Number(big);
+  }
   throw new Error(`bad int size ${n}`);
 }
 
@@ -78,6 +102,7 @@ export function parseHeif(buffer) {
           let q = e.body + 4;
           const id = ev === 2 ? view.getUint16(q) : view.getUint32(q);
           q += (ev === 2 ? 2 : 4) + 2;
+          if (m.types.size >= MAX_ITEMS) fail('too many items');
           m.types.set(id, td.decode(new Uint8Array(buffer, q, 4)));
         }
         break;
@@ -88,6 +113,7 @@ export function parseHeif(buffer) {
         p += 2;
         const count = v < 2 ? view.getUint16(p) : view.getUint32(p);
         p += v < 2 ? 2 : 4;
+        if (count > MAX_ITEMS) fail('too many item locations');
         for (let i = 0; i < count; i++) {
           const id = v < 2 ? view.getUint16(p) : view.getUint32(p);
           p += v < 2 ? 2 : 4;
@@ -96,6 +122,7 @@ export function parseHeif(buffer) {
           p += 2; // data_reference_index
           const base = readN(view, p, baseSize); p += baseSize;
           const n = view.getUint16(p); p += 2;
+          if (n > MAX_EXTENTS) fail('too many extents');
           const extents = [];
           for (let k = 0; k < n; k++) {
             p += idxSize;
@@ -114,6 +141,7 @@ export function parseHeif(buffer) {
           const from = w === 2 ? view.getUint16(q) : view.getUint32(q);
           q += w;
           const n = view.getUint16(q); q += 2;
+          if (m.refs.length >= MAX_REFS || n > MAX_REFS) fail('too many references');
           const to = [];
           for (let k = 0; k < n; k++) { to.push(w === 2 ? view.getUint16(q) : view.getUint32(q)); q += w; }
           m.refs.push({ type: r.type, from, to });
@@ -122,11 +150,15 @@ export function parseHeif(buffer) {
       case 'iprp':
         for (const c of boxes(view, b.body, b.end)) {
           if (c.type === 'ipco') {
-            for (const pr of boxes(view, c.body, c.end)) m.props.push(pr);
+            for (const pr of boxes(view, c.body, c.end)) {
+              if (m.props.length >= MAX_PROPS) fail('too many properties');
+              m.props.push(pr);
+            }
           } else if (c.type === 'ipma') {
             const cv = view.getUint8(c.body), flags = view.getUint8(c.body + 3);
             let q = c.body + 4;
             const n = view.getUint32(q); q += 4;
+            if (n > MAX_ITEMS) fail('too many property associations');
             for (let k = 0; k < n; k++) {
               const id = cv < 1 ? view.getUint16(q) : view.getUint32(q);
               q += cv < 1 ? 2 : 4;
@@ -160,14 +192,20 @@ const refsFrom = (m, id, type) => m.refs.find((r) => r.type === type && r.from =
 
 function itemBytes(m, id) {
   const loc = m.locs.get(id);
-  if (!loc || loc.method > 1 || (loc.method === 1 && !m.idat)) throw new Error(`item ${id}: unsupported location`);
+  if (!loc || loc.method > 1 || (loc.method === 1 && !m.idat)) fail(`item ${id}: unsupported location`);
   const base = loc.method === 1 ? m.idat.body : 0;
-  return u8(...loc.extents.map(([o, l]) => new Uint8Array(m.buffer, base + o, l)));
+  const limit = loc.method === 1 ? m.idat.end : m.buffer.byteLength;
+  return u8(...loc.extents.map(([o, l]) => {
+    if (base + o + l > limit) fail(`item ${id}: data outside the file`);
+    return new Uint8Array(m.buffer, base + o, l);
+  }));
 }
 
 function ispe(m, id) {
   const p = findProp(m, id, 'ispe');
-  return p ? [m.view.getUint32(p.body + 4), m.view.getUint32(p.body + 8)] : null;
+  if (!p) return null;
+  const w = m.view.getUint32(p.body + 4), h = m.view.getUint32(p.body + 8);
+  return w > 0 && h > 0 ? [w, h] : null;
 }
 
 // --- writing a single-image HEIC --------------------------------------------
@@ -218,12 +256,15 @@ function transformMatrix(m, transforms, w, h) {
   for (const p of transforms) {
     if (p.type === 'clap') {
       const r = (i) => v.getInt32(p.body + i * 4);
-      const cw = Math.round(v.getUint32(p.body) / v.getUint32(p.body + 4));
-      const ch = Math.round(v.getUint32(p.body + 8) / v.getUint32(p.body + 12));
-      const offX = r(4) / r(5), offY = r(6) / r(7);
+      const u = (i) => v.getUint32(p.body + i * 4);
+      if (!u(1) || !u(3) || !u(5) || !u(7)) fail('crop has a zero denominator');
+      const cw = Math.round(u(0) / u(1));
+      const ch = Math.round(u(2) / u(3));
+      const offX = r(4) / u(5), offY = r(6) / u(7);
       // same rounding as libheif (left rounds down, top rounds half-up)
       const left = Math.floor(offX + (w - 1) / 2 - (cw - 1) / 2);
       const top = Math.round(offY + (h - 1) / 2 - (ch - 1) / 2);
+      if (!(cw > 0 && ch > 0 && left >= 0 && top >= 0 && left + cw <= w && top + ch <= h)) fail('crop is outside the image');
       then([1, 0, 0, 1, -left, -top]);
       w = cw; h = ch;
     } else if (p.type === 'irot') {
@@ -299,12 +340,14 @@ export function gridPlan(m) {
   const gridW = big ? gv.getUint32(4) : gv.getUint16(4);
   const gridH = big ? gv.getUint32(big ? 8 : 6) : gv.getUint16(6);
 
+  if (!(gridW > 0 && gridH > 0)) return { reason: 'grid has no size' };
   const tileIds = refsFrom(m, id, 'dimg');
   if (tileIds.length !== rows * cols) return { reason: `grid lists ${tileIds.length} tiles, expected ${rows * cols}` };
   if (tileIds.some((t) => m.types.get(t) !== 'hvc1')) return { reason: 'grid tiles are not HEVC' };
   const size = ispe(m, tileIds[0]);
   if (!size) return { reason: 'tile size unknown' };
   const [tileW, tileH] = size;
+  if (cols * tileW < gridW || rows * tileH < gridH) return { reason: 'tiles do not cover the image' };
 
   const tiles = tileIds.map((t, i) => ({
     x: (i % cols) * tileW,

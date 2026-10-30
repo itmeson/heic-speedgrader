@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HEIC Viewer for Canvas – Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <header>
+      <img src="icons/icon-48.png" width="48" height="48" alt="">
+      <div>
+        <h1>HEIC Viewer for Canvas SpeedGrader</h1>
+        <p class="sub">Shows iPhone HEIC photo submissions inside SpeedGrader.</p>
+      </div>
+    </header>
+
+    <section>
+      <h2>Your Canvas address</h2>
+      <p>If your school's Canvas address ends in <strong>instructure.com</strong>
+        (for example <code>myschool.instructure.com</code>), you're all set. Nothing to do here.</p>
+      <p>If your school uses its own address (for example <code>canvas.myschool.org</code>), add it below.
+        Chrome will ask you to allow the extension on that site.</p>
+      <form id="add-form">
+        <label for="domain">Canvas address</label>
+        <div class="row">
+          <input id="domain" type="text" inputmode="url" autocomplete="off" spellcheck="false"
+                 placeholder="canvas.myschool.org" required>
+          <button type="submit">Add</button>
+        </div>
+        <p id="msg" role="status"></p>
+      </form>
+      <h3>Added addresses</h3>
+      <ul id="list"><li class="empty">None yet.</li></ul>
+      <p class="hint">After adding an address, reload any open Canvas tabs.</p>
+    </section>
+
+    <section>
+      <h2>How to use it</h2>
+      <ol>
+        <li>Open SpeedGrader on an assignment.</li>
+        <li>When a student submitted a HEIC photo, it appears in the preview area, or in a green
+          <strong>HEIC image</strong> box at the bottom-left. Click the file name to view it.</li>
+        <li>Use Fit, −/+, ⟳ (rotate) and Save JPG in the viewer's toolbar.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Privacy</h2>
+      <p>Images are downloaded from Canvas with your existing login and decoded on this computer.
+        The extension doesn't send data anywhere, doesn't store anything, and doesn't need a Canvas API token.</p>
+      <p><a href="viewer.html" target="_blank">Test the decoder with a HEIC file from your computer</a></p>
+    </section>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

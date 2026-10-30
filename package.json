@@ -1,0 +1,19 @@
+{
+  "name": "heic-speedgrader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome extension that displays HEIC/HEIF student submissions inside Canvas SpeedGrader. All decoding happens locally in the browser.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "package": "node scripts/build.mjs && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  },
+  "dependencies": {
+    "libheif-js": "1.23.5"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "HEIC Viewer for Canvas SpeedGrader",
+  "short_name": "HEIC Viewer",
+  "version": "1.0.0",
+  "description": "See iPhone HEIC photo submissions inside Canvas SpeedGrader. Decoded on your computer; nothing is uploaded or collected.",
+  "minimum_chrome_version": "120",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "HEIC Viewer settings",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "scripting"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.instructure.com/courses/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "host_permissions": [
+    "https://*.instructure.com/*",
+    "https://*.canvas-user-content.com/*",
+    "https://*.inscloudgate.net/*",
+    "https://instructure-uploads.s3.amazonaws.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "viewer.html",
+        "decoder-host.html"
+      ],
+      "matches": [
+        "https://*/*"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

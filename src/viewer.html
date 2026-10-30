@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HEIC preview</title>
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+  <div id="toolbar">
+    <span id="name"></span>
+    <span id="phase" hidden>Preview · loading full image…</span>
+    <span class="spacer"></span>
+    <span id="zoom-label" aria-live="polite"></span>
+    <button type="button" id="fit" aria-pressed="true" title="Fit to window (F)">Fit</button>
+    <button type="button" id="zoom-out" title="Zoom out (−)">−</button>
+    <button type="button" id="zoom-in" title="Zoom in (+)">+</button>
+    <button type="button" id="rotate" title="Rotate 90° (R)">⟳</button>
+    <button type="button" id="save" title="Save as JPEG" disabled>Save JPG</button>
+  </div>
+  <div id="stage">
+    <p id="status" role="status">Loading…</p>
+    <div id="wrap" hidden><canvas id="cv"></canvas></div>
+  </div>
+  <div id="picker" hidden>
+    <p>No file was passed to the viewer. Choose a HEIC file to test decoding locally:</p>
+    <input type="file" id="file" accept=".heic,.heif,image/heic,image/heif">
+  </div>
+  <script type="module" src="viewer.js"></script>
+</body>
+</html>

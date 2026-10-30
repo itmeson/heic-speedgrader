@@ -1,0 +1,85 @@
+.heic-viewer-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 70vh;
+  border: 0;
+  display: block;
+  background: #f5f5f5;
+}
+.heic-viewer-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 16px;
+  border-radius: 8px;
+  background: #0b874b;
+  color: #fff;
+  vertical-align: middle;
+}
+.heic-viewer-button {
+  margin-left: 6px;
+  padding: 1px 8px;
+  font-size: 12px;
+  border: 1px solid #0b874b;
+  border-radius: 4px;
+  background: #fff;
+  color: #0b874b;
+  cursor: pointer;
+}
+.heic-viewer-button:hover { background: #0b874b; color: #fff; }
+.heic-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+.heic-viewer-overlay .heic-viewer-frame {
+  width: min(1200px, 100%);
+  height: 100%;
+  border-radius: 6px;
+}
+.heic-viewer-close {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  font-size: 28px;
+  line-height: 1;
+  color: #fff;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.heic-viewer-panel {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2147482000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 60vw;
+  padding: 8px 10px;
+  background: #fff;
+  border: 2px solid #0b874b;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  font: 13px/1.3 system-ui, sans-serif;
+  color: #2d3b45;
+}
+.heic-viewer-panel .heic-viewer-button { margin-left: 0; }
+.heic-decoder-host {
+  position: fixed !important;
+  width: 0 !important;
+  height: 0 !important;
+  border: 0 !important;
+  left: -10px !important;
+  top: -10px !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}

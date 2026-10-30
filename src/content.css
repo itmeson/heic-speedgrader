@@ -36,7 +36,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px;
+  padding: 44px 32px 32px;
+}
+@media (max-width: 640px) {
+  .heic-viewer-overlay { padding: 44px 6px 6px; }
 }
 .heic-viewer-overlay .heic-viewer-frame {
   width: min(1200px, 100%);
@@ -45,14 +48,23 @@
 }
 .heic-viewer-close {
   position: absolute;
-  top: 8px;
-  right: 16px;
+  top: 6px;
+  right: 12px;
+  min-width: 36px;
+  min-height: 36px;
   font-size: 28px;
   line-height: 1;
   color: #fff;
   background: none;
   border: 0;
+  border-radius: 6px;
   cursor: pointer;
+}
+.heic-viewer-close:focus-visible,
+.heic-viewer-button:focus-visible,
+.heic-viewer-frame:focus-visible {
+  outline: 3px solid #ffbf47;
+  outline-offset: 2px;
 }
 .heic-viewer-panel {
   position: fixed;
@@ -63,7 +75,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  max-width: 60vw;
+  max-width: min(60vw, calc(100vw - 32px));
   padding: 8px 10px;
   background: #fff;
   border: 2px solid #0b874b;

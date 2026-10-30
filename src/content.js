@@ -170,6 +170,7 @@
   async function openOverlay(href, name, opener) {
     closeOverlay();
     const mine = ++overlayToken;
+    overlayOpener = opener || document.activeElement;
     const frame = await makeViewerFrame(href, name);
     if (mine !== overlayToken) return; // closed or replaced meanwhile
     const overlay = document.createElement('div');
@@ -184,23 +185,24 @@
     close.textContent = '×';
     close.setAttribute('aria-label', 'Close HEIC preview');
     close.addEventListener('click', closeOverlay);
-    overlay.append(frame, close);
+    overlay.append(close, frame);
+    // Make the rest of the page inert while the dialog is open: it can't be
+    // focused, clicked, or reached by screen readers.
+    for (const el of document.body.children) {
+      if (el !== overlay && !el.inert) { el.inert = true; inerted.push(el); }
+    }
     document.body.append(overlay);
-    overlayOpener = opener || document.activeElement;
     frame.addEventListener('load', () => frame.focus(), { once: true });
+    close.focus();
     document.addEventListener('keydown', overlayKeys, true);
   }
 
+  const inerted = [];
+
   function overlayKeys(e) {
-    const overlay = document.querySelector('.heic-viewer-overlay');
-    if (!overlay) return;
-    if (e.key === 'Escape') { e.preventDefault(); closeOverlay(); return; }
-    if (e.key === 'Tab') {
-      // Keep focus inside the dialog: the close button and the viewer frame.
-      const items = [overlay.querySelector('iframe'), overlay.querySelector('.heic-viewer-close')];
-      const i = items.indexOf(document.activeElement);
+    if (e.key === 'Escape' && document.querySelector('.heic-viewer-overlay')) {
       e.preventDefault();
-      items[(i + (e.shiftKey ? items.length - 1 : 1)) % items.length]?.focus();
+      closeOverlay();
     }
   }
 
@@ -209,8 +211,9 @@
     const had = document.querySelector('.heic-viewer-overlay');
     document.querySelectorAll('.heic-viewer-overlay').forEach((el) => el.remove());
     document.removeEventListener('keydown', overlayKeys, true);
+    for (const el of inerted.splice(0)) el.inert = false;
     if (had && overlayOpener?.isConnected) overlayOpener.focus();
-    overlayOpener = null;
+    if (had) overlayOpener = null;
   }
 
   // ---------------------------------------------------------------------

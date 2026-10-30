@@ -29,6 +29,7 @@ let scale = 1;            // used when fit === false
 let fileName = '';
 
 function setStatus(msg, isError = false) {
+  statusEl.setAttribute('role', isError ? 'alert' : 'status');
   statusEl.textContent = msg;
   statusEl.classList.toggle('error', isError);
   statusEl.hidden = !msg;
@@ -143,7 +144,7 @@ function resetView(name) {
   phase.hidden = true;
   $('save').disabled = true;
   zoomLabel.textContent = '';
-  $('name').textContent = fileName;
+  $('name').textContent = fileName || 'HEIC preview';
   document.title = fileName ? `HEIC preview – ${fileName}` : 'HEIC preview';
   cv.setAttribute('role', 'img');
   cv.setAttribute('aria-label', fileName || 'Submitted image');
@@ -306,12 +307,15 @@ async function decodeTiles(pool, plan, preview, gen, ms) {
   log(`full ${width}×${height} shown after ${ms()} ms (${tiles.length} tiles, ${pool.size || 'several'} workers)`);
 }
 
+const announce = (msg) => { $('announce').textContent = msg; };
+
 function finish() {
   showCanvas();
   phase.hidden = true;
   if (!natW) return;
   layout(false);
   $('save').disabled = false;
+  announce(`${fileName || 'Image'} loaded.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -371,7 +375,12 @@ function explain(err) {
 $('fit').addEventListener('click', () => { fit = true; layout(false); });
 $('zoom-in').addEventListener('click', () => zoomBy(ZOOM_STEP));
 $('zoom-out').addEventListener('click', () => zoomBy(1 / ZOOM_STEP));
-$('rotate').addEventListener('click', () => { rotation = (rotation + 90) % 360; layout(); });
+$('rotate').addEventListener('click', () => {
+  rotation = (rotation + 90) % 360;
+  layout();
+  cv.setAttribute('aria-label', `${fileName || 'Submitted image'}${rotation ? `, rotated ${rotation}°` : ''}`);
+  announce(rotation ? `Rotated ${rotation} degrees.` : 'Rotation reset.');
+});
 
 /** The image as shown: full resolution, with the on-screen rotation applied. */
 function exportCanvas() {
@@ -418,6 +427,7 @@ stage.addEventListener('wheel', (e) => {
   zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1);
 }, { passive: false });
 new ResizeObserver(() => { if (fit) layout(false); }).observe(stage);
+// The image area (#stage) is focusable so arrow keys / Page Up/Down scroll a zoomed image.
 
 window.addEventListener('pagehide', () => {
   displayGen++;

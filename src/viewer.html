@@ -7,18 +7,20 @@
   <link rel="stylesheet" href="viewer.css">
 </head>
 <body>
-  <div id="toolbar" role="toolbar" aria-label="Image controls">
-    <span id="name"></span>
-    <span id="phase" role="status" hidden>Preview · loading full image…</span>
+  <main>
+  <div id="toolbar">
+    <h1 id="name">HEIC preview</h1>
+    <span id="phase" aria-hidden="true" hidden>Preview · loading full image…</span>
     <span class="spacer"></span>
-    <span id="zoom-label" aria-live="polite"></span>
+    <span id="zoom-label"></span>
     <button type="button" id="fit" aria-pressed="true" title="Fit to window (F)">Fit</button>
     <button type="button" id="zoom-out" title="Zoom out (−)" aria-label="Zoom out">−</button>
     <button type="button" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>
     <button type="button" id="rotate" title="Rotate 90° (R)" aria-label="Rotate 90 degrees">⟳</button>
     <button type="button" id="save" title="Save as JPEG" disabled>Save JPG</button>
   </div>
-  <div id="stage">
+  <div id="announce" class="sr-only" role="status" aria-live="polite"></div>
+  <div id="stage" role="region" aria-label="Image area" tabindex="0">
     <p id="status" role="status" aria-live="polite">Loading…</p>
     <div id="wrap" hidden><canvas id="cv"></canvas></div>
   </div>
@@ -27,6 +29,7 @@
     <label for="file">Choose a HEIC file:</label>
     <input type="file" id="file" accept=".heic,.heif,image/heic,image/heif">
   </div>
+  </main>
   <script type="module" src="viewer.js"></script>
 </body>
 </html>
